@@ -1,0 +1,18 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: v2.0.1
+_src_path: https://github.com/napari/napari-plugin-template
+display_name: Maps Stitcher
+email: st.flurin@gmail.com
+full_name: Flurin Sturzenegger
+github_repository_url: https://github.com/ZMB-UZH/napari-maps-stitcher
+github_username_or_organization: ZMB-UZH
+include_reader_plugin: false
+include_sample_data_plugin: false
+include_widget_plugin: true
+include_writer_plugin: false
+install_dependabot: true
+install_precommit: false
+license: BSD-3
+module_name: napari_maps_stitcher
+plugin_name: napari-maps-stitcher
+short_description: A napari plugin to stitch MAPS data.
