@@ -54,6 +54,7 @@ class StitchingWorker(QObject):
         resolution_path: str | None,
         blend: bool,
         stride: int | None,
+        output_format: str,
     ):
         """Initialize the stitching worker.
 
@@ -65,6 +66,7 @@ class StitchingWorker(QObject):
             resolution_path: Resolution path for registration (algorithm-specific).
             blend: Whether to use blending for fusion (algorithm-specific).
             stride: Stride parameter for SOFIMA algorithm.
+            output_format: Output format ('zarr' or 'tiff').
         """
         super().__init__()
         self.zarr_path = zarr_path
@@ -74,6 +76,7 @@ class StitchingWorker(QObject):
         self.resolution_path = resolution_path
         self.blend = blend
         self.stride = stride
+        self.output_format = output_format
 
     def run(self):
         """Execute the stitching process."""
@@ -83,7 +86,10 @@ class StitchingWorker(QObject):
 
             # Prepare stitching data
             shapes, output_paths = roi_stitching.prepare_roi_stitching(
-                self.zarr_path, self.roi_layer, self.get_shapes_func
+                self.zarr_path,
+                self.roi_layer,
+                self.get_shapes_func,
+                self.output_format,
             )
 
             total_rois = len(shapes)
@@ -98,7 +104,7 @@ class StitchingWorker(QObject):
                 zip(shapes, output_paths, strict=True)
             ):
                 print(f"\nProcessing ROI {i + 1}/{total_rois}:")
-                roi_stitching.stitch_single_roi(
+                final_path = roi_stitching.stitch_single_roi(
                     self.zarr_path,
                     output_path,
                     shape,
@@ -106,11 +112,12 @@ class StitchingWorker(QObject):
                     self.resolution_path,
                     self.blend,
                     self.stride,
+                    self.output_format,
                 )
-                completed_paths.append(output_path)
+                completed_paths.append(final_path)
                 # Emit progress and individual ROI completion
                 self.progress.emit(i + 1, total_rois)
-                self.roi_completed.emit(str(output_path))
+                self.roi_completed.emit(str(final_path))
 
             print(f"\nCompleted stitching {total_rois} ROI(s)")
             self.success.emit(completed_paths)
@@ -203,6 +210,26 @@ class StitchingWidget(QWidget):
         algorithm_layout.addWidget(algorithm_label)
         algorithm_layout.addWidget(self.algorithm_combo)
         self.layout().addLayout(algorithm_layout)
+
+        # Output format selection row
+        output_format_layout = QHBoxLayout()
+        output_format_label = QLabel("Output format:")
+        output_format_label.setToolTip(
+            "Select the output file format for stitched ROIs.\n"
+            "OME-Zarr: Multi-resolution, efficient for large images.\n"
+            "OME-TIFF: Standard format, compatible with most software."
+        )
+        self.output_format_combo = QComboBox()
+        self.output_format_combo.addItem("OME-Zarr (.zarr)", "zarr")
+        self.output_format_combo.addItem("OME-TIFF (.ome.tif)", "tiff")
+        self.output_format_combo.setToolTip(
+            "Select the output file format for stitched ROIs.\n"
+            "OME-Zarr: Multi-resolution, efficient for large images.\n"
+            "OME-TIFF: Standard format, compatible with most software."
+        )
+        output_format_layout.addWidget(output_format_label)
+        output_format_layout.addWidget(self.output_format_combo)
+        self.layout().addLayout(output_format_layout)
 
         # Advanced Options toggle button
         self.advanced_toggle = QPushButton("▶ Advanced Options")
@@ -448,6 +475,9 @@ class StitchingWidget(QWidget):
         # Get stride (SOFIMA only)
         stride = self.stride_input.value() if algorithm == "sofima" else None
 
+        # Get output format
+        output_format = self.output_format_combo.currentData()
+
         # Disable all inputs during stitching
         self._set_inputs_enabled(False)
 
@@ -460,6 +490,7 @@ class StitchingWidget(QWidget):
             resolution_path,
             blend,
             stride,
+            output_format,
         )
         self.stitching_thread = QThread()
         self.stitching_worker.moveToThread(self.stitching_thread)
@@ -491,6 +522,7 @@ class StitchingWidget(QWidget):
         self.zarr_browse_button.setEnabled(enabled)
         self.load_button.setEnabled(enabled)
         self.algorithm_combo.setEnabled(enabled)
+        self.output_format_combo.setEnabled(enabled)
         self.advanced_toggle.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.blend_checkbox.setEnabled(enabled)
@@ -558,35 +590,90 @@ class StitchingWidget(QWidget):
         """Handle completion of individual ROI stitching.
 
         Args:
-            output_path: Path to the generated stitched zarr file.
+            output_path: Path to the generated stitched file (.zarr or .ome.tif).
         """
         try:
             # Track the number of layers before opening
             num_layers_before = len(self.viewer.layers)
 
-            # Open the zarr file
-            self.viewer.open(output_path, plugin="napari-ome-zarr")
-
-            # Get the zarr file name without extension
+            # Open the file - use napari-ome-zarr only for zarr files
             from pathlib import Path
 
-            zarr_name = Path(output_path).stem
+            path_obj = Path(output_path)
 
-            # Rename any newly added layers to use the zarr name
+            if path_obj.suffix == ".zarr":
+                self.viewer.open(output_path, plugin="napari-ome-zarr")
+            else:
+                # For TIFF files, use custom reader to preserve pixel size
+                self._load_ome_tiff_with_metadata(output_path)
+
+            # Get the file name without extension
+            file_name = path_obj.stem
+
+            # Rename any newly added layers to use the file name
             for i in range(num_layers_before, len(self.viewer.layers)):
                 layer = self.viewer.layers[i]
-                # If there's only one new layer, use the zarr name directly
+                # If there's only one new layer, use the file name directly
                 # If multiple layers, append the original suffix
                 if len(self.viewer.layers) - num_layers_before == 1:
-                    layer.name = zarr_name
+                    layer.name = file_name
                 else:
                     # Keep any suffix from the original name (e.g., channel info)
                     original_name = layer.name
-                    layer.name = f"{zarr_name}_{original_name}"
+                    layer.name = f"{file_name}_{original_name}"
 
             print(f"Loaded stitched ROI into napari: {output_path}")
         except Exception as e:
             print(f"Warning: Failed to load {output_path} into napari: {e}")
+
+    def _load_ome_tiff_with_metadata(self, tiff_path: str) -> None:
+        """Load OME-TIFF file with proper metadata including pixel size.
+
+        Args:
+            tiff_path: Path to the OME-TIFF file.
+        """
+        from tifffile import TiffFile
+
+        with TiffFile(tiff_path) as tif:
+            data = tif.asarray()
+            scale = [1.0] * data.ndim
+
+            # Parse OME-XML metadata if available
+            if tif.ome_metadata:
+                try:
+                    from xml.etree import ElementTree as ET
+
+                    root = ET.fromstring(tif.ome_metadata)
+
+                    # Try common OME namespace versions
+                    for year in ["2016-06", "2015-01", "2013-06"]:
+                        ns = {
+                            "ome": f"http://www.openmicroscopy.org/Schemas/OME/{year}"
+                        }
+                        pixels = root.find(".//ome:Pixels", ns)
+                        if pixels is not None:
+                            break
+
+                    if pixels is not None:
+                        # Get physical sizes and apply to last dimensions (Y, X)
+                        if phys_x := pixels.get("PhysicalSizeX"):
+                            scale[-1] = float(phys_x)
+                        if phys_y := pixels.get("PhysicalSizeY"):
+                            scale[-2] = float(phys_y)
+
+                        # Handle Z if present
+                        if (
+                            phys_z := pixels.get("PhysicalSizeZ")
+                        ) and data.ndim >= 3:
+                            axes = tif.series[0].axes if tif.series else ""
+                            if "Z" in axes:
+                                scale[axes.index("Z")] = float(phys_z)
+
+                except Exception as e:
+                    print(f"Note: Could not parse OME-XML metadata: {e}")
+
+            # Add layer with scale
+            self.viewer.add_image(data, name=None, scale=tuple(scale))
 
     def _on_stitching_progress(self, current: int, total: int) -> None:
         """Update progress bar.
