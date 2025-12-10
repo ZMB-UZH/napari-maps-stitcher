@@ -82,6 +82,7 @@ def stitch_single_roi(
     output_zarr_path: str | Path,
     roi_shape: np.ndarray,
     resolution_path: str | None = None,
+    blend: bool = False,
 ) -> None:
     """Stitch a single ROI from the input zarr.
 
@@ -91,6 +92,8 @@ def stitch_single_roi(
         roi_shape: Numpy array of shape coordinates defining the ROI.
         resolution_path: Resolution path to use for registration.
             If None, uses the lowest resolution.
+        blend: If True, use weighted average blending for fusion.
+            If False, use overlay fusion.
     """
     input_zarr_path = Path(input_zarr_path)
     output_zarr_path = Path(output_zarr_path)
@@ -111,6 +114,7 @@ def stitch_single_roi(
         output_zarr_url=output_zarr_path,
         rois=rois_sel,
         resolution_path=resolution_path,
+        blend=blend,
         z_project=True,  # Project z-axis for registration
     )
     print(f"  Stitching complete: {output_zarr_path.name}")
@@ -121,6 +125,7 @@ def stitch_all_rois(
     shapes_layer: "Shapes",
     get_shapes_func: Callable[["Shapes"], list[np.ndarray]],
     resolution_path: str | None = None,
+    blend: bool = False,
 ) -> list[Path]:
     """Stitch all ROIs from a shapes layer.
 
@@ -130,6 +135,8 @@ def stitch_all_rois(
         get_shapes_func: Function to extract shapes from the layer.
         resolution_path: Resolution path to use for registration.
             If None, uses the lowest resolution.
+        blend: If True, use weighted average blending for fusion.
+            If False, use overlay fusion.
 
     Returns:
         List of paths to the generated stitched zarr files.
@@ -144,7 +151,7 @@ def stitch_all_rois(
     # Stitch each ROI
     for i, (shape, output_path) in enumerate(zip(shapes, output_paths)):
         print(f"\nProcessing ROI {i + 1}/{len(shapes)}:")
-        stitch_single_roi(zarr_path, output_path, shape, resolution_path)
+        stitch_single_roi(zarr_path, output_path, shape, resolution_path, blend)
 
     print(f"\nCompleted stitching {len(shapes)} ROI(s)")
     return output_paths

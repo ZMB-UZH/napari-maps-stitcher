@@ -4,8 +4,11 @@ from pathlib import Path
 
 from dask.diagnostics import ProgressBar
 from multiview_stitcher import fusion, msi_utils, registration
+from multiview_stitcher.fusion import weighted_average_fusion
 from ngio import Roi, open_ome_zarr_container
 from ngio.tables import RoiTable
+
+from napari_maps_stitcher.multiview_stitcher_utils.fusion import overlay_fusion
 
 from .omezarr_utils import export_single_ROI, get_msims
 
@@ -15,6 +18,7 @@ def stitch_rois(
     output_zarr_url: str | Path,
     rois: list[Roi],
     resolution_path: str = None,
+    blend=False,
     z_project: bool = True,
 ) -> None:
     """Stitch ROIs using multiview-stitcher registration and fusion.
@@ -25,6 +29,8 @@ def stitch_rois(
         rois: List of ROIs to stitch.
         resolution_path: Resolution path to use for registration.
             If None, uses the lowest resolution.
+        blend: If True, use weighted average blending for fusion.
+            If False, use overlay fusion.
         z_project: If True, project z-axis for registration.
     """
     if len(rois) == 1:
@@ -59,7 +65,9 @@ def stitch_rois(
         msims_fusion = msims_reg
     else:
         msims_fusion = get_msims(
-            ome_zarr_container.get_image(path="0"), FOV_ROI_table, z_project=False
+            ome_zarr_container.get_image(path="0"),
+            FOV_ROI_table,
+            z_project=False,
         )
         for i in range(len(msims_fusion)):
             affine = msi_utils.get_transform_from_msim(
@@ -67,11 +75,14 @@ def stitch_rois(
             )
             if z_project:
                 affine_3d = registration.param_utils.identity_transform(
-                    ndim=3, t_coords=affine.coords["t"] if "t" in affine.dims else None
+                    ndim=3,
+                    t_coords=affine.coords["t"]
+                    if "t" in affine.dims
+                    else None,
                 )
-                affine_3d.loc[{pdim: affine.coords[pdim] for pdim in affine.dims}] = (
-                    affine
-                )
+                affine_3d.loc[
+                    {pdim: affine.coords[pdim] for pdim in affine.dims}
+                ] = affine
                 affine = affine_3d
 
             msi_utils.set_affine_transform(
@@ -81,6 +92,7 @@ def stitch_rois(
     # get fused image (lazy calculation)
     fused = fusion.fuse(
         [msi_utils.get_sim_from_msim(msim) for msim in msims_fusion],
+        fusion_func=weighted_average_fusion if blend else overlay_fusion,
         transform_key="affine_registered",
         output_chunksize=1024,
     )

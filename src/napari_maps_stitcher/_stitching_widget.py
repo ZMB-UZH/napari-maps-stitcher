@@ -9,6 +9,7 @@ import napari
 import numpy as np
 from qtpy.QtCore import QObject, QThread, Signal
 from qtpy.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -47,12 +48,14 @@ class StitchingWorker(QObject):
         roi_layer,
         get_shapes_func,
         resolution_path: str | None,
+        blend: bool,
     ):
         super().__init__()
         self.zarr_path = zarr_path
         self.roi_layer = roi_layer
         self.get_shapes_func = get_shapes_func
         self.resolution_path = resolution_path
+        self.blend = blend
 
     def run(self):
         """Execute the stitching process."""
@@ -78,7 +81,7 @@ class StitchingWorker(QObject):
             ):
                 print(f"\nProcessing ROI {i + 1}/{total_rois}:")
                 roi_stitching.stitch_single_roi(
-                    self.zarr_path, output_path, shape, self.resolution_path
+                    self.zarr_path, output_path, shape, self.resolution_path, self.blend
                 )
                 completed_paths.append(output_path)
                 # Emit progress
@@ -187,6 +190,25 @@ class StitchingWidget(QWidget):
         resolution_layout.addWidget(resolution_label)
         resolution_layout.addWidget(self.resolution_combo)
         advanced_layout.addLayout(resolution_layout)
+
+        # Blend option
+        blend_layout = QHBoxLayout()
+        blend_label = QLabel("Blend overlapping tiles:")
+        blend_label.setToolTip(
+            "Enable weighted average blending in overlapping regions.\n"
+            "When enabled: Smooth transitions between tiles.\n"
+            "When disabled: Overlay fusion with sharp boundaries."
+        )
+        self.blend_checkbox = QCheckBox()
+        self.blend_checkbox.setChecked(False)
+        self.blend_checkbox.setToolTip(
+            "Enable weighted average blending in overlapping regions.\n"
+            "When enabled: Smooth transitions between tiles.\n"
+            "When disabled: Overlay fusion with sharp boundaries."
+        )
+        blend_layout.addWidget(blend_label)
+        blend_layout.addWidget(self.blend_checkbox)
+        advanced_layout.addLayout(blend_layout)
 
         self.advanced_widget.setLayout(advanced_layout)
         self.advanced_widget.setVisible(False)  # Hidden by default
@@ -319,13 +341,16 @@ class StitchingWidget(QWidget):
 
         # Get selected resolution path
         resolution_path = self.resolution_combo.currentData()
+        
+        # Get blend option
+        blend = self.blend_checkbox.isChecked()
 
         # Disable all inputs during stitching
         self._set_inputs_enabled(False)
 
         # Create worker and thread
         self.stitching_worker = StitchingWorker(
-            zarr_path, roi_layer, self._get_shapes_from_layer, resolution_path
+            zarr_path, roi_layer, self._get_shapes_from_layer, resolution_path, blend
         )
         self.stitching_thread = QThread()
         self.stitching_worker.moveToThread(self.stitching_thread)
@@ -357,6 +382,7 @@ class StitchingWidget(QWidget):
         self.load_button.setEnabled(enabled)
         self.advanced_toggle.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
+        self.blend_checkbox.setEnabled(enabled)
         self.stitch_button.setEnabled(enabled)
 
     def _on_stitching_finished(self) -> None:
