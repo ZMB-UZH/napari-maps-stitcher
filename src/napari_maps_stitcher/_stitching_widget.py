@@ -275,11 +275,6 @@ class StitchingWidget(QWidget):
         # Initialize advanced option visibility based on default algorithm
         self._on_algorithm_changed(self.algorithm_combo.currentIndex())
 
-        # Progress bar (hidden by default)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.layout().addWidget(self.progress_bar)
-
         # Stitch button row
         stitch_layout = QHBoxLayout()
         self.stitch_button = QPushButton("Stitch ROIs")
@@ -291,6 +286,11 @@ class StitchingWidget(QWidget):
         stitch_layout.addWidget(self.stitch_button)
 
         self.layout().addLayout(stitch_layout)
+
+        # Progress bar (hidden by default)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.layout().addWidget(self.progress_bar)
 
     def _on_zarr_browse_clicked(self) -> None:
         """Open file dialog to select a zarr file."""
