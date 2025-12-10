@@ -17,6 +17,7 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -47,15 +48,30 @@ class StitchingWorker(QObject):
         zarr_path: str,
         roi_layer,
         get_shapes_func,
+        algorithm: str,
         resolution_path: str | None,
         blend: bool,
+        stride: int | None,
     ):
+        """Initialize the stitching worker.
+
+        Args:
+            zarr_path: Path to the input OME-Zarr file.
+            roi_layer: Napari shapes layer containing ROIs.
+            get_shapes_func: Function to extract shapes from the layer.
+            algorithm: Name of the stitching algorithm to use.
+            resolution_path: Resolution path for registration (algorithm-specific).
+            blend: Whether to use blending for fusion (algorithm-specific).
+            stride: Stride parameter for SOFIMA algorithm.
+        """
         super().__init__()
         self.zarr_path = zarr_path
         self.roi_layer = roi_layer
         self.get_shapes_func = get_shapes_func
+        self.algorithm = algorithm
         self.resolution_path = resolution_path
         self.blend = blend
+        self.stride = stride
 
     def run(self):
         """Execute the stitching process."""
@@ -77,11 +93,17 @@ class StitchingWorker(QObject):
             # Stitch each ROI
             completed_paths = []
             for i, (shape, output_path) in enumerate(
-                zip(shapes, output_paths)
+                zip(shapes, output_paths, strict=True)
             ):
                 print(f"\nProcessing ROI {i + 1}/{total_rois}:")
                 roi_stitching.stitch_single_roi(
-                    self.zarr_path, output_path, shape, self.resolution_path, self.blend
+                    self.zarr_path,
+                    output_path,
+                    shape,
+                    self.algorithm,
+                    self.resolution_path,
+                    self.blend,
+                    self.stride,
                 )
                 completed_paths.append(output_path)
                 # Emit progress
@@ -89,7 +111,7 @@ class StitchingWorker(QObject):
 
             print(f"\nCompleted stitching {total_rois} ROI(s)")
             self.success.emit(completed_paths)
-        except Exception as e:
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as e:
             self.error.emit(str(e))
         finally:
             self.finished.emit()
@@ -157,6 +179,26 @@ class StitchingWidget(QWidget):
 
         self.layout().addLayout(load_layout)
 
+        # Algorithm selection row
+        algorithm_layout = QHBoxLayout()
+        algorithm_label = QLabel("Stitching algorithm:")
+        algorithm_label.setToolTip(
+            "Select the stitching algorithm to use."
+        )
+        self.algorithm_combo = QComboBox()
+        self.algorithm_combo.addItem("Multiview-Stitcher", "multiview-stitcher")
+        self.algorithm_combo.addItem("SOFIMA (experimental)", "sofima")
+        # Add more algorithms as they become available
+        self.algorithm_combo.setToolTip(
+            "Select the stitching algorithm to use."
+        )
+        self.algorithm_combo.currentIndexChanged.connect(
+            self._on_algorithm_changed
+        )
+        algorithm_layout.addWidget(algorithm_label)
+        algorithm_layout.addWidget(self.algorithm_combo)
+        self.layout().addLayout(algorithm_layout)
+
         # Advanced Options toggle button
         self.advanced_toggle = QPushButton("▶ Advanced Options")
         self.advanced_toggle.setCheckable(True)
@@ -174,8 +216,8 @@ class StitchingWidget(QWidget):
 
         # Resolution path option
         resolution_layout = QHBoxLayout()
-        resolution_label = QLabel("Resolution for registration:")
-        resolution_label.setToolTip(
+        self.resolution_label = QLabel("Resolution for registration:")
+        self.resolution_label.setToolTip(
             "Select which resolution pyramid level to use for tile registration.\n"
             "Lower resolutions are faster but might be less precise.\n"
             "The output will always be at full resolution."
@@ -187,14 +229,14 @@ class StitchingWidget(QWidget):
             "Lower resolutions are faster but might be less precise.\n"
             "The output will always be at full resolution."
         )
-        resolution_layout.addWidget(resolution_label)
+        resolution_layout.addWidget(self.resolution_label)
         resolution_layout.addWidget(self.resolution_combo)
         advanced_layout.addLayout(resolution_layout)
 
-        # Blend option
+        # Blend option (multiview-stitcher only)
         blend_layout = QHBoxLayout()
-        blend_label = QLabel("Blend overlapping tiles:")
-        blend_label.setToolTip(
+        self.blend_label = QLabel("Blend overlapping tiles:")
+        self.blend_label.setToolTip(
             "Enable weighted average blending in overlapping regions.\n"
             "When enabled: Smooth transitions between tiles.\n"
             "When disabled: Overlay fusion with sharp boundaries."
@@ -206,13 +248,32 @@ class StitchingWidget(QWidget):
             "When enabled: Smooth transitions between tiles.\n"
             "When disabled: Overlay fusion with sharp boundaries."
         )
-        blend_layout.addWidget(blend_label)
+        blend_layout.addWidget(self.blend_label)
         blend_layout.addWidget(self.blend_checkbox)
         advanced_layout.addLayout(blend_layout)
+
+        # SOFIMA stride option
+        stride_layout = QHBoxLayout()
+        self.stride_label = QLabel("SOFIMA stride (px):")
+        self.stride_label.setToolTip(
+            "Pixel stride for SOFIMA flow estimation; lower is slower but more accurate."
+        )
+        self.stride_input = QSpinBox()
+        self.stride_input.setRange(1, 512)
+        self.stride_input.setValue(20)
+        self.stride_input.setToolTip(
+            "Pixel stride for SOFIMA flow estimation; lower is slower but more accurate."
+        )
+        stride_layout.addWidget(self.stride_label)
+        stride_layout.addWidget(self.stride_input)
+        advanced_layout.addLayout(stride_layout)
 
         self.advanced_widget.setLayout(advanced_layout)
         self.advanced_widget.setVisible(False)  # Hidden by default
         self.layout().addWidget(self.advanced_widget)
+
+        # Initialize advanced option visibility based on default algorithm
+        self._on_algorithm_changed(self.algorithm_combo.currentIndex())
 
         # Progress bar (hidden by default)
         self.progress_bar = QProgressBar()
@@ -281,7 +342,7 @@ class StitchingWidget(QWidget):
             # Change button text to indicate reload option
             self.load_button.setText("Reload OME-Zarr")
 
-        except Exception as e:
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as e:
             print(f"Failed to load zarr file: {e}")
 
     def _populate_resolution_options(self, zarr_path: str) -> None:
@@ -339,18 +400,32 @@ class StitchingWidget(QWidget):
             print("ROI_layer not found. Please load a zarr file first.")
             return
 
-        # Get selected resolution path
-        resolution_path = self.resolution_combo.currentData()
-        
-        # Get blend option
-        blend = self.blend_checkbox.isChecked()
+        # Get selected algorithm
+        algorithm = self.algorithm_combo.currentData()
+
+        # Get selected resolution path (multiview only)
+        resolution_path = (
+            self.resolution_combo.currentData() if algorithm == "multiview-stitcher" else None
+        )
+
+        # Get blend option (multiview only)
+        blend = self.blend_checkbox.isChecked() if algorithm == "multiview-stitcher" else False
+
+        # Get stride (SOFIMA only)
+        stride = self.stride_input.value() if algorithm == "sofima" else None
 
         # Disable all inputs during stitching
         self._set_inputs_enabled(False)
 
         # Create worker and thread
         self.stitching_worker = StitchingWorker(
-            zarr_path, roi_layer, self._get_shapes_from_layer, resolution_path, blend
+            zarr_path,
+            roi_layer,
+            self._get_shapes_from_layer,
+            algorithm,
+            resolution_path,
+            blend,
+            stride,
         )
         self.stitching_thread = QThread()
         self.stitching_worker.moveToThread(self.stitching_thread)
@@ -380,10 +455,58 @@ class StitchingWidget(QWidget):
         self.zarr_input.setEnabled(enabled)
         self.zarr_browse_button.setEnabled(enabled)
         self.load_button.setEnabled(enabled)
+        self.algorithm_combo.setEnabled(enabled)
         self.advanced_toggle.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.blend_checkbox.setEnabled(enabled)
+        self.stride_input.setEnabled(enabled)
         self.stitch_button.setEnabled(enabled)
+
+    def _on_algorithm_changed(self, _index: int) -> None:
+        """Handle algorithm selection change.
+
+        Update advanced options based on selected algorithm.
+        """
+        algorithm = self.algorithm_combo.currentData()
+        is_sofima = algorithm == "sofima"
+
+        # Visibility: show multiview options only for multiview, stride only for SOFIMA
+        # Visibility per algorithm
+        self.resolution_label.setVisible(not is_sofima)
+        self.resolution_combo.setVisible(not is_sofima)
+        self.blend_label.setVisible(not is_sofima)
+        self.blend_checkbox.setVisible(not is_sofima)
+
+        self.stride_label.setVisible(is_sofima)
+        self.stride_input.setVisible(is_sofima)
+
+        # Enablement
+        self.resolution_combo.setEnabled(not is_sofima)
+        self.blend_checkbox.setEnabled(not is_sofima)
+        self.stride_input.setEnabled(is_sofima)
+
+        # Tooltips
+        if not is_sofima:
+            self.resolution_combo.setToolTip(
+                "Select which resolution pyramid level to use for tile registration.\n"
+                "Lower resolutions are faster but might be less precise.\n"
+                "The output will always be at full resolution."
+            )
+            self.blend_checkbox.setToolTip(
+                "Enable weighted average blending in overlapping regions.\n"
+                "When enabled: Smooth transitions between tiles (slower).\n"
+                "When disabled: Overlay fusion with sharp boundaries (faster)."
+            )
+        else:
+            self.resolution_combo.setToolTip(
+                "SOFIMA computes alignment internally; resolution selection is not used."
+            )
+            self.blend_checkbox.setToolTip(
+                "Blend is not used by SOFIMA."
+            )
+            self.stride_input.setToolTip(
+                "Pixel stride for SOFIMA flow estimation; lower is slower but more accurate."
+            )
 
     def _on_stitching_finished(self) -> None:
         """Re-enable inputs after stitching completes."""

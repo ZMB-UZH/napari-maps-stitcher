@@ -1,14 +1,10 @@
 """Utilities for working with ROIs (Regions of Interest) from OME-Zarr containers."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 from ngio import Roi, open_ome_zarr_container
 from shapely.geometry import Polygon
-
-if TYPE_CHECKING:
-    pass
 
 
 def get_tile_rois(ome_zarr_path: str | Path) -> list[Roi]:

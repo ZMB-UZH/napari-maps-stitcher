@@ -3,7 +3,8 @@
 from pathlib import Path
 
 from dask.diagnostics import ProgressBar
-from multiview_stitcher import msi_utils, spatial_image_utils as si_utils
+from multiview_stitcher import msi_utils
+from multiview_stitcher import spatial_image_utils as si_utils
 from ngio import Roi, open_ome_zarr_container
 
 

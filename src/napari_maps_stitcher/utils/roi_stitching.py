@@ -1,7 +1,8 @@
 """Utilities for stitching ROIs from OME-Zarr files."""
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -81,8 +82,10 @@ def stitch_single_roi(
     input_zarr_path: str | Path,
     output_zarr_path: str | Path,
     roi_shape: np.ndarray,
+    algorithm: str = "multiview-stitcher",
     resolution_path: str | None = None,
     blend: bool = False,
+    stride: int | None = None,
 ) -> None:
     """Stitch a single ROI from the input zarr.
 
@@ -90,10 +93,12 @@ def stitch_single_roi(
         input_zarr_path: Path to the input OME-Zarr file.
         output_zarr_path: Path where the stitched ROI zarr will be saved.
         roi_shape: Numpy array of shape coordinates defining the ROI.
-        resolution_path: Resolution path to use for registration.
+        algorithm: Name of the stitching algorithm to use.
+            Default: "multiview-stitcher".
+        resolution_path: Resolution path to use for registration (algorithm-specific).
             If None, uses the lowest resolution.
-        blend: If True, use weighted average blending for fusion.
-            If False, use overlay fusion.
+        blend: If True, use blending for fusion (algorithm-specific).
+        stride: Stride parameter for SOFIMA algorithm.
     """
     input_zarr_path = Path(input_zarr_path)
     output_zarr_path = Path(output_zarr_path)
@@ -107,15 +112,17 @@ def stitch_single_roi(
     rois_sel = get_overlapping_tile_rois(roi_shape, rois_all)
     print(f"  Stitching {len(rois_sel)} tiles out of {len(rois_all)} total.")
 
-    # Perform stitching using multiview-stitcher
-    print("  Starting stitching with multiview-stitcher...")
+    # Perform stitching using selected algorithm
+    print(f"  Starting stitching with {algorithm}...")
     stitch_rois(
         input_zarr_url=input_zarr_path,
         output_zarr_url=output_zarr_path,
         rois=rois_sel,
+        algorithm=algorithm,
         resolution_path=resolution_path,
         blend=blend,
-        z_project=True,  # Project z-axis for registration
+        stride=stride,
+        z_project=True,  # Project z-axis for registration (multiview-stitcher)
     )
     print(f"  Stitching complete: {output_zarr_path.name}")
 
@@ -124,8 +131,10 @@ def stitch_all_rois(
     zarr_path: str | Path,
     shapes_layer: "Shapes",
     get_shapes_func: Callable[["Shapes"], list[np.ndarray]],
+    algorithm: str = "multiview-stitcher",
     resolution_path: str | None = None,
     blend: bool = False,
+    stride: int | None = None,
 ) -> list[Path]:
     """Stitch all ROIs from a shapes layer.
 
@@ -133,10 +142,12 @@ def stitch_all_rois(
         zarr_path: Path to the input OME-Zarr file.
         shapes_layer: Napari Shapes layer containing ROI definitions.
         get_shapes_func: Function to extract shapes from the layer.
-        resolution_path: Resolution path to use for registration.
+        algorithm: Name of the stitching algorithm to use.
+            Default: "multiview-stitcher".
+        resolution_path: Resolution path to use for registration (algorithm-specific).
             If None, uses the lowest resolution.
-        blend: If True, use weighted average blending for fusion.
-            If False, use overlay fusion.
+        blend: If True, use blending for fusion (algorithm-specific).
+        stride: Stride parameter for SOFIMA algorithm.
 
     Returns:
         List of paths to the generated stitched zarr files.
@@ -149,9 +160,17 @@ def stitch_all_rois(
     print(f"\nStarting stitching of {len(shapes)} ROI(s)...")
 
     # Stitch each ROI
-    for i, (shape, output_path) in enumerate(zip(shapes, output_paths)):
+    for i, (shape, output_path) in enumerate(zip(shapes, output_paths, strict=True)):
         print(f"\nProcessing ROI {i + 1}/{len(shapes)}:")
-        stitch_single_roi(zarr_path, output_path, shape, resolution_path, blend)
+        stitch_single_roi(
+            zarr_path,
+            output_path,
+            shape,
+            algorithm,
+            resolution_path,
+            blend,
+            stride,
+        )
 
     print(f"\nCompleted stitching {len(shapes)} ROI(s)")
     return output_paths

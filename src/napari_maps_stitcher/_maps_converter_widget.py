@@ -70,7 +70,7 @@ class ConversionWorker(QObject):
             else:
                 self.error.emit(f"Expected zarr file not found at {zarr_path}")
 
-        except Exception as e:
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as e:
             self.error.emit(str(e))
         finally:
             self.finished.emit()
@@ -364,13 +364,10 @@ class MapsConverterWidget(QWidget):
                         added_dock.show()
                         converter_dock.raise_()
 
-                    except Exception as e:
+                    except (RuntimeError, ValueError) as e:
                         print(
                             f"Could not position stitching widget below converter: {e}"
                         )
-                        import traceback
-
-                        traceback.print_exc()
 
             # Set the zarr path in the stitching widget
             stitching_widget.zarr_input.setText(zarr_path)
@@ -379,11 +376,8 @@ class MapsConverterWidget(QWidget):
             stitching_widget._on_load_clicked()
 
             print("Stitching widget opened and file loaded")
-        except Exception as e:
-            import traceback
-
+        except (RuntimeError, ValueError, FileNotFoundError, OSError) as e:
             print(f"Failed to open stitching widget: {e}")
-            traceback.print_exc()
 
     def _on_conversion_error(self, error_msg: str) -> None:
         """Handle conversion error."""
