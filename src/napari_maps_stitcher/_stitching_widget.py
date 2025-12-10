@@ -36,12 +36,14 @@ class StitchingWorker(QObject):
         error: Emitted on stitching error with error message.
         success: Emitted on successful completion with list of output paths.
         progress: Emitted after each ROI completion with (current, total) counts.
+        roi_completed: Emitted after each individual ROI is stitched with the output path.
     """
 
     finished = Signal()
     error = Signal(str)
     success = Signal(list)
     progress = Signal(int, int)  # current, total
+    roi_completed = Signal(str)  # output_path
 
     def __init__(
         self,
@@ -106,8 +108,9 @@ class StitchingWorker(QObject):
                     self.stride,
                 )
                 completed_paths.append(output_path)
-                # Emit progress
+                # Emit progress and individual ROI completion
                 self.progress.emit(i + 1, total_rois)
+                self.roi_completed.emit(str(output_path))
 
             print(f"\nCompleted stitching {total_rois} ROI(s)")
             self.success.emit(completed_paths)
@@ -141,7 +144,9 @@ class StitchingWidget(QWidget):
             "   The outputs will be saved next to the original .zarr\n"
         )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("QLabel { color: #888; margin-bottom: 10px; }")
+        instructions.setStyleSheet(
+            "QLabel { color: #888; margin-bottom: 10px; }"
+        )
         self.layout().addWidget(instructions)
 
         # Zarr path selection row
@@ -182,11 +187,11 @@ class StitchingWidget(QWidget):
         # Algorithm selection row
         algorithm_layout = QHBoxLayout()
         algorithm_label = QLabel("Stitching algorithm:")
-        algorithm_label.setToolTip(
-            "Select the stitching algorithm to use."
-        )
+        algorithm_label.setToolTip("Select the stitching algorithm to use.")
         self.algorithm_combo = QComboBox()
-        self.algorithm_combo.addItem("Multiview-Stitcher", "multiview-stitcher")
+        self.algorithm_combo.addItem(
+            "Multiview-Stitcher", "multiview-stitcher"
+        )
         self.algorithm_combo.addItem("SOFIMA (experimental)", "sofima")
         # Add more algorithms as they become available
         self.algorithm_combo.setToolTip(
@@ -327,7 +332,30 @@ class StitchingWidget(QWidget):
 
         try:
             print(f"Loading {zarr_path}...")
+
+            # Track the number of layers before opening
+            num_layers_before = len(self.viewer.layers)
+
+            # Open the zarr file
             self.viewer.open(zarr_path, plugin="napari-ome-zarr")
+
+            # Get the zarr file name without extension
+            from pathlib import Path
+
+            zarr_name = Path(zarr_path).stem
+
+            # Rename any newly added layers to use the zarr name
+            for i in range(num_layers_before, len(self.viewer.layers)):
+                layer = self.viewer.layers[i]
+                # If there's only one new layer, use the zarr name directly
+                # If multiple layers, append the original suffix
+                if len(self.viewer.layers) - num_layers_before == 1:
+                    layer.name = zarr_name
+                else:
+                    # Keep any suffix from the original name (e.g., channel info)
+                    original_name = layer.name
+                    layer.name = f"{zarr_name}_{original_name}"
+
             print(f"Loaded {zarr_path} into napari viewer")
 
             # Add ROI shapes layer if it doesn't exist
@@ -405,11 +433,17 @@ class StitchingWidget(QWidget):
 
         # Get selected resolution path (multiview only)
         resolution_path = (
-            self.resolution_combo.currentData() if algorithm == "multiview-stitcher" else None
+            self.resolution_combo.currentData()
+            if algorithm == "multiview-stitcher"
+            else None
         )
 
         # Get blend option (multiview only)
-        blend = self.blend_checkbox.isChecked() if algorithm == "multiview-stitcher" else False
+        blend = (
+            self.blend_checkbox.isChecked()
+            if algorithm == "multiview-stitcher"
+            else False
+        )
 
         # Get stride (SOFIMA only)
         stride = self.stride_input.value() if algorithm == "sofima" else None
@@ -437,6 +471,7 @@ class StitchingWidget(QWidget):
         self.stitching_worker.success.connect(self._on_stitching_success)
         self.stitching_worker.error.connect(self._on_stitching_error)
         self.stitching_worker.progress.connect(self._on_stitching_progress)
+        self.stitching_worker.roi_completed.connect(self._on_roi_completed)
 
         # Show progress bar
         self.progress_bar.setValue(0)
@@ -501,9 +536,7 @@ class StitchingWidget(QWidget):
             self.resolution_combo.setToolTip(
                 "SOFIMA computes alignment internally; resolution selection is not used."
             )
-            self.blend_checkbox.setToolTip(
-                "Blend is not used by SOFIMA."
-            )
+            self.blend_checkbox.setToolTip("Blend is not used by SOFIMA.")
             self.stride_input.setToolTip(
                 "Pixel stride for SOFIMA flow estimation; lower is slower but more accurate."
             )
@@ -520,6 +553,40 @@ class StitchingWidget(QWidget):
             output_paths: List of paths to the generated stitched zarr files.
         """
         print(f"\nStitching complete! Generated {len(output_paths)} file(s).")
+
+    def _on_roi_completed(self, output_path: str) -> None:
+        """Handle completion of individual ROI stitching.
+
+        Args:
+            output_path: Path to the generated stitched zarr file.
+        """
+        try:
+            # Track the number of layers before opening
+            num_layers_before = len(self.viewer.layers)
+
+            # Open the zarr file
+            self.viewer.open(output_path, plugin="napari-ome-zarr")
+
+            # Get the zarr file name without extension
+            from pathlib import Path
+
+            zarr_name = Path(output_path).stem
+
+            # Rename any newly added layers to use the zarr name
+            for i in range(num_layers_before, len(self.viewer.layers)):
+                layer = self.viewer.layers[i]
+                # If there's only one new layer, use the zarr name directly
+                # If multiple layers, append the original suffix
+                if len(self.viewer.layers) - num_layers_before == 1:
+                    layer.name = zarr_name
+                else:
+                    # Keep any suffix from the original name (e.g., channel info)
+                    original_name = layer.name
+                    layer.name = f"{zarr_name}_{original_name}"
+
+            print(f"Loaded stitched ROI into napari: {output_path}")
+        except Exception as e:
+            print(f"Warning: Failed to load {output_path} into napari: {e}")
 
     def _on_stitching_progress(self, current: int, total: int) -> None:
         """Update progress bar.
@@ -544,7 +611,10 @@ class StitchingWidget(QWidget):
 
     def closeEvent(self, event):
         """Clean up threads when widget is closed."""
-        if self.stitching_thread is not None and self.stitching_thread.isRunning():
+        if (
+            self.stitching_thread is not None
+            and self.stitching_thread.isRunning()
+        ):
             self.stitching_thread.quit()
             self.stitching_thread.wait()
         super().closeEvent(event)

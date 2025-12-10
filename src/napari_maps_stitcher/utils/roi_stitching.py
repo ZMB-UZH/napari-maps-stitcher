@@ -32,19 +32,21 @@ def generate_roi_output_paths(
     base_name = zarr_path.stem  # Remove .zarr extension
 
     output_paths = []
+    roi_index = 0
+
     for i in range(num_rois):
-        # Check for existing fused zarrs
-        roi_index = i
+        # Check for existing fused zarrs and already-assigned paths
         output_name = f"{base_name}_ROI_{roi_index}.zarr"
         output_path = output_dir / output_name
 
-        # Increment index if file already exists
-        while output_path.exists():
+        # Increment index if file already exists or path already assigned
+        while output_path.exists() or output_path in output_paths:
             roi_index += 1
             output_name = f"{base_name}_ROI_{roi_index}.zarr"
             output_path = output_dir / output_name
 
         output_paths.append(output_path)
+        roi_index += 1  # Move to next index for next ROI
 
     return output_paths
 
@@ -160,7 +162,9 @@ def stitch_all_rois(
     print(f"\nStarting stitching of {len(shapes)} ROI(s)...")
 
     # Stitch each ROI
-    for i, (shape, output_path) in enumerate(zip(shapes, output_paths, strict=True)):
+    for i, (shape, output_path) in enumerate(
+        zip(shapes, output_paths, strict=True)
+    ):
         print(f"\nProcessing ROI {i + 1}/{len(shapes)}:")
         stitch_single_roi(
             zarr_path,
