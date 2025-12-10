@@ -6,6 +6,12 @@ visibility: public
 # categories: []
 contributions:
   commands:
+    - id: napari-maps-stitcher.maps_converter
+      python_name: napari_maps_stitcher._maps_converter_widget:MapsConverterWidget
+      title: MAPS to OME-Zarr Conversion
+    - id: napari-maps-stitcher.stitching_widget
+      python_name: napari_maps_stitcher._stitching_widget:StitchingWidget
+      title: ROI Stitching
     - id: napari-maps-stitcher.make_container_widget
       python_name: napari_maps_stitcher:ImageThreshold
       title: Make threshold Container widget
@@ -19,6 +25,10 @@ contributions:
       python_name: napari_maps_stitcher:ExampleQWidget
       title: Make example QWidget
   widgets:
+    - command: napari-maps-stitcher.maps_converter
+      display_name: MAPS to OME-Zarr Conversion
+    - command: napari-maps-stitcher.stitching_widget
+      display_name: ROI Stitching
     - command: napari-maps-stitcher.make_container_widget
       display_name: Container Threshold
     - command: napari-maps-stitcher.make_magic_widget
