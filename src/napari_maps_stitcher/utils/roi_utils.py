@@ -29,11 +29,13 @@ def _roi_to_polygon(roi: Roi) -> Polygon:
     Returns:
         A Shapely Polygon representing the ROI bounds.
     """
+    sy = roi["y"]
+    sx = roi["x"]
     shape = [
-        [roi.y, roi.x],
-        [roi.y + roi.y_length, roi.x],
-        [roi.y + roi.y_length, roi.x + roi.x_length],
-        [roi.y, roi.x + roi.x_length],
+        [sy.start, sx.start],
+        [sy.end, sx.start],
+        [sy.end, sx.end],
+        [sy.start, sx.end],
     ]
     return Polygon(shape)
 

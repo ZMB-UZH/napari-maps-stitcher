@@ -1,11 +1,29 @@
 """Utilities for OME-Zarr image operations."""
 
+import contextlib
+from importlib.util import find_spec
 from pathlib import Path
 
+import zarr
 from dask.diagnostics import ProgressBar
 from multiview_stitcher import msi_utils
 from multiview_stitcher import spatial_image_utils as si_utils
 from ngio import Roi, open_ome_zarr_container
+
+
+@contextlib.contextmanager
+def zarrs_codec():
+    """Enable the ``zarrs`` Rust codec pipeline for the duration of the block.
+
+    ``zarrs`` accelerates chunk encoding/compression for zarr writes. It is an
+    optional dependency: when it is not installed this is a no-op. The setting is
+    scoped via ``zarr.config`` so it never leaks to the rest of the process.
+    """
+    if find_spec("zarrs") is None:
+        yield
+        return
+    with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}):
+        yield
 
 
 def get_levels_paths_dict(zarr_path: Path | str) -> dict[str, str]:
@@ -21,7 +39,7 @@ def get_levels_paths_dict(zarr_path: Path | str) -> dict[str, str]:
         return {}
     ome_zarr_container = open_ome_zarr_container(Path(zarr_path))
     output = {}
-    for path in ome_zarr_container.levels_paths:
+    for path in ome_zarr_container.level_paths:
         pixel_size = ome_zarr_container.get_image(path).pixel_size
         unit = ome_zarr_container.get_image(path).space_unit
         # TODO: handle units better
@@ -35,21 +53,35 @@ def get_levels_paths_dict(zarr_path: Path | str) -> dict[str, str]:
 
 
 def _get_original_translation(roi, spatial_dims):
-    """Get original stage positions from an ROI.
+    """Get the original (overlapping) stage position of an ROI per axis.
+
+    The FOV ROI table stores each tile's true stage position as
+    ``{axis}_micrometer_original`` extra columns, distinct from the grid-snapped,
+    edge-to-edge positions in ``roi.slices``. multiview-stitcher needs the
+    original positions so it starts from the real tile overlap.
 
     Args:
-        roi: The ROI object.
+        roi: The ngio ``Roi`` object.
         spatial_dims: List of spatial dimension names (e.g., ['y', 'x']).
 
     Returns:
-        Dictionary mapping dimension names to their original positions.
+        Dictionary mapping dimension names to their original stage positions.
+
+    Raises:
+        ValueError: If the ROI is missing an ``{axis}_micrometer_original``
+            value. The grid-snapped slice positions are not a usable substitute
+            (they carry no tile overlap), so registration would fail downstream.
     """
+    extra = roi.model_extra or {}
     translation = {}
     for dim in spatial_dims:
-        try:
-            translation[dim] = getattr(roi, f"{dim}_micrometer_original")
-        except AttributeError:
-            translation[dim] = getattr(roi, dim)
+        key = f"{dim}_micrometer_original"
+        if key not in extra:
+            raise ValueError(
+                f"ROI {roi.get_name()!r} is missing '{key}'; cannot recover the "
+                "original stage position required for stitching."
+            )
+        translation[dim] = extra[key]
     return translation
 
 

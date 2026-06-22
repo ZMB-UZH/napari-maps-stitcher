@@ -17,13 +17,13 @@ from .omezarr_utils import export_single_ROI
 
 def get_tile_map(ome_zarr_container, rois: list[Roi]):
     tile_map = {}
-    x_length = rois[0].x_length
-    y_length = rois[0].y_length
-    x_min = min(roi.x for roi in rois)
-    y_min = min(roi.y for roi in rois)
+    x_length = rois[0]["x"].length
+    y_length = rois[0]["y"].length
+    x_min = min(roi["x"].start for roi in rois)
+    y_min = min(roi["y"].start for roi in rois)
     for roi in rois:
-        ix = round((roi.x - x_min) / x_length)
-        iy = round((roi.y - y_min) / y_length)
+        ix = round((roi["x"].start - x_min) / x_length)
+        iy = round((roi["y"].start - y_min) / y_length)
         data = ome_zarr_container.get_image().get_roi(roi, mode="numpy")
         data = np.squeeze(data)
         if len(data.shape) != 2:

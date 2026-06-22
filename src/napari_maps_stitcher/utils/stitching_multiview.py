@@ -9,7 +9,7 @@ from ngio import Roi, open_ome_zarr_container
 from ngio.tables import RoiTable
 
 from ..multiview_stitcher_utils.fusion import overlay_fusion
-from .omezarr_utils import export_single_ROI, get_msims
+from .omezarr_utils import export_single_ROI, get_msims, zarrs_codec
 
 
 def stitch_rois_multiview_stitcher(
@@ -37,7 +37,7 @@ def stitch_rois_multiview_stitcher(
         return
     ome_zarr_container = open_ome_zarr_container(input_zarr_url)
     if resolution_path is None:
-        resolution_path = ome_zarr_container.levels_paths[-1]
+        resolution_path = ome_zarr_container.level_paths[-1]
     FOV_ROI_table = RoiTable(rois)
 
     # load the FOVs as multiscale spatial images (msims)
@@ -100,10 +100,20 @@ def stitch_rois_multiview_stitcher(
     axes_in = image_obj.axes
     fused = fused.squeeze([dim for dim in fused.dims if dim not in axes_in])
 
+    # Align the dask blocks to the zarr chunks. ngio writes with
+    # ``da.store(..., lock=False)``; if the dask blocks don't map 1:1 onto the
+    # zarr chunks, parallel threads read-modify-write the *same* chunk and clobber
+    # each other, dropping data ("missing chunks") on large mosaics. Deriving the
+    # output with chunks equal to the (uniform) dask blocks makes each zarr chunk
+    # written by exactly one task.
+    write_chunks = fused.data.chunksize
+    fused_data = fused.data.rechunk(write_chunks)
+
     # create a new OME-Zarr container with the fused image
     new_ome_zarr_container = ome_zarr_container.derive_image(
         store=output_zarr_url,
         shape=fused.shape,
+        chunks=write_chunks,
         overwrite=True,
     )
 
@@ -112,6 +122,6 @@ def stitch_rois_multiview_stitcher(
 
     # write the fused data to the ome-zarr image
     print("    Writing fused data...")
-    with ProgressBar():
-        image.set_array(patch=fused.data, axes_order=fused.dims)
+    with zarrs_codec(), ProgressBar():
+        image.set_array(patch=fused_data, axes_order=fused.dims)
         image.consolidate()
