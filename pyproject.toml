@@ -17,22 +17,28 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Image Processing",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 # napari can be included in dependencies if napari imports are required.
 # However, you should not include napari[all], napari[qt],
 # or any other Qt bindings directly (e.g. PyQt5, PySide2).
 # See best practices: https://napari.org/stable/plugins/building_a_plugin/best_practices.html
 dependencies = [
+    "dask",
+    #"edt<3.1", # get error on windows otherwise
     "numpy",
+    "napari-ome-zarr",
     "magicgui",
     "qtpy",
     "scikit-image",
+    "maps-omezarr-converter @ git+https://github.com/ZMB-UZH/maps-omezarr-converter.git@v0.2.2",
+    "sofima @ git+https://github.com/google-research/sofima.git",
+    "multiview-stitcher",
+    "shapely",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +48,7 @@ all = ["napari[all]"]
 
 [dependency-groups]
 dev = [
+    "notebook",
     "tox-uv",
     "pytest",  # https://docs.pytest.org/en/latest/contents.html
     "pytest-cov",  # https://pytest-cov.readthedocs.io/en/latest/
@@ -85,7 +92,7 @@ testpaths = ["tests"]
 
 [tool.black]
 line-length = 79
-target-version = ['py310', 'py311', 'py312', 'py313']
+target-version = ['py311', 'py312', 'py313']
 
 [tool.ruff]
 line-length = 79
