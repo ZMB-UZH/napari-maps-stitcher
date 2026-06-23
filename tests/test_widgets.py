@@ -1,18 +1,22 @@
-"""Smoke tests that the plugin widgets instantiate inside a napari viewer.
+"""Smoke tests that the plugin widgets construct and wire up correctly.
 
-These use napari's ``make_napari_viewer`` fixture (a real Qt viewer), so they
-exercise widget construction, signal wiring, and the napari manifest without
-needing any MAPS data on disk.
+These use ``pytest-qt``'s ``qtbot`` (which only guarantees a ``QApplication``)
+together with a lightweight mock viewer. The widgets only store ``self.viewer``
+at construction time and build their Qt children, so a real napari viewer is not
+needed -- and avoiding it keeps the tests off the offscreen-OpenGL path that is a
+common source of fatal crashes on headless CI.
 """
+
+from unittest.mock import MagicMock
 
 from napari_maps_stitcher._maps_converter_widget import MapsConverterWidget
 from napari_maps_stitcher._stitching_widget import StitchingWidget
 
 
-def test_converter_widget_constructs(make_napari_viewer):
+def test_converter_widget_constructs(qtbot):
     """The converter widget builds with disabled, placeholder dropdowns."""
-    viewer = make_napari_viewer()
-    widget = MapsConverterWidget(viewer)
+    widget = MapsConverterWidget(MagicMock())
+    qtbot.addWidget(widget)
 
     # Dropdowns start disabled until a valid project folder is selected.
     assert not widget.layer_combo.isEnabled()
@@ -20,10 +24,10 @@ def test_converter_widget_constructs(make_napari_viewer):
     assert widget.convert_button.text() == "Convert to OME-Zarr"
 
 
-def test_stitching_widget_constructs(make_napari_viewer):
+def test_stitching_widget_constructs(qtbot):
     """The stitching widget exposes both algorithms and default options."""
-    viewer = make_napari_viewer()
-    widget = StitchingWidget(viewer)
+    widget = StitchingWidget(MagicMock())
+    qtbot.addWidget(widget)
 
     algorithms = [
         widget.algorithm_combo.itemData(i)
@@ -34,10 +38,10 @@ def test_stitching_widget_constructs(make_napari_viewer):
     assert not widget.advanced_widget.isVisible()
 
 
-def test_stitching_widget_algorithm_toggles_options(make_napari_viewer):
+def test_stitching_widget_algorithm_toggles_options(qtbot):
     """Switching to SOFIMA swaps which advanced options are shown."""
-    viewer = make_napari_viewer()
-    widget = StitchingWidget(viewer)
+    widget = StitchingWidget(MagicMock())
+    qtbot.addWidget(widget)
 
     sofima_index = next(
         i
