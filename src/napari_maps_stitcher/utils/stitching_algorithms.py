@@ -7,7 +7,6 @@ from ngio import Roi
 
 from .stitching_base import StitchingAlgorithm
 from .stitching_multiview import stitch_rois_multiview_stitcher
-from .stitching_sofima import stitch_rois_sofima
 
 
 class MultiviewStitcherAlgorithm(StitchingAlgorithm):
@@ -84,6 +83,10 @@ class SofimaAlgorithm(StitchingAlgorithm):
             rois: List of ROIs to stitch.
             **kwargs: Algorithm parameters (stride).
         """
+        # Imported lazily: SOFIMA pulls in jax, whose native DLLs are fragile
+        # on some platforms (e.g. Windows). Deferring the import keeps the
+        # plugin and the multiview-stitcher path importable without jax.
+        from .stitching_sofima import stitch_rois_sofima
 
         stitch_rois_sofima(
             input_zarr_url=input_zarr_url,
