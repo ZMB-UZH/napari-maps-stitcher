@@ -1,54 +1,70 @@
 # napari-maps-stitcher
 
-[![License BSD-3](https://img.shields.io/pypi/l/napari-maps-stitcher.svg?color=green)](https://github.com/ZMB-UZH/napari-maps-stitcher/raw/main/LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/napari-maps-stitcher.svg?color=green)](https://pypi.org/project/napari-maps-stitcher)
-[![Python Version](https://img.shields.io/pypi/pyversions/napari-maps-stitcher.svg?color=green)](https://python.org)
-[![tests](https://github.com/ZMB-UZH/napari-maps-stitcher/workflows/tests/badge.svg)](https://github.com/ZMB-UZH/napari-maps-stitcher/actions)
-[![codecov](https://codecov.io/gh/ZMB-UZH/napari-maps-stitcher/branch/main/graph/badge.svg)](https://codecov.io/gh/ZMB-UZH/napari-maps-stitcher)
-[![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-maps-stitcher)](https://napari-hub.org/plugins/napari-maps-stitcher)
-[![npe2](https://img.shields.io/badge/plugin-npe2-blue?link=https://napari.org/stable/plugins/index.html)](https://napari.org/stable/plugins/index.html)
-[![Copier](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/copier-org/copier/master/img/badge/badge-grayscale-inverted-border-purple.json)](https://github.com/copier-org/copier)
-
-A napari plugin to stitch MAPS data.
+A napari plugin to convert tiled, 2D MAPS data to OME-Zarr and to stitch regions of interest.
 
 ----------------------------------
 
-This [napari] plugin was generated with [copier] using the [napari-plugin-template] (None).
-
-<!--
-Don't miss the full getting started guide to set up your new package:
-https://github.com/napari/napari-plugin-template#getting-started
-
-and review the napari docs for plugin developers:
-https://napari.org/stable/plugins/index.html
--->
-
 ## Installation
-
-You can install `napari-maps-stitcher` via [pip]:
-
-```
-pip install napari-maps-stitcher
-```
-
-If napari is not already installed, you can install `napari-maps-stitcher` with napari and Qt via:
-
-```
-pip install "napari-maps-stitcher[all]"
-```
-
-
-To install latest development version :
 
 ```
 pip install git+https://github.com/ZMB-UZH/napari-maps-stitcher.git
 ```
 
+If napari is not already installed, you can install `napari-maps-stitcher` with napari and Qt via:
 
+```
+pip install "napari[all]"
+pip install git+https://github.com/ZMB-UZH/napari-maps-stitcher.git
+```
+
+## Instructions
+
+The plugin contributes two widgets, found in napari under
+`Plugins → Maps Stitcher`:
+
+- **MAPS to OME-Zarr Conversion** — convert a MAPS project to OME-Zarr.
+- **ROI Stitching** — stitch regions of interest from a converted OME-Zarr.
+
+A typical workflow runs the converter first and then stitches; the converter
+opens the stitching widget and loads its output automatically when it finishes.
+
+### 1. Convert MAPS data to OME-Zarr
+
+Open the **MAPS to OME-Zarr Conversion** widget and:
+
+1. **Select your MAPS project folder** (the folder containing
+   `MapsProject.xml`) by typing/pasting the path or using *Browse…*.
+2. **Choose the layer and acquisition** to convert. The dropdowns populate from
+   the project's `MapsProject.xml`. To batch-convert, pick *(All acquisitions in
+   layer)* or *(All layers)* — when several acquisitions are produced, only the
+   first is loaded into napari.
+3. **Select an output folder** where the `.zarr` will be written.
+4. Click **Convert to OME-Zarr**.
+
+When conversion finishes, the **ROI Stitching** widget opens automatically with
+the converted OME-Zarr already loaded.
+
+### 2. Stitch regions of interest
+
+In the **ROI Stitching** widget:
+
+1. **Load an OME-Zarr file** — set automatically after conversion, or select one
+   manually and click *Load OME-Zarr*. This adds the image and an empty
+   `ROI_layer` to the viewer.
+2. **Draw regions of interest** in the `ROI_layer`. Each ROI is
+   stitched independently. A region covering the whole mosaic stitches
+   everything.
+3. (Optional) Pick a **stitching algorithm** and **output format** (OME-Zarr or
+   OME-TIFF), and adjust **Advanced Options**:
+   - *Multiview-Stitcher* (default): choose the registration resolution level
+     (lower is faster) and whether to blend overlapping tiles.
+   - *SOFIMA* (experimental): set the flow-estimation stride.
+4. Click **Stitch ROIs**. Each stitched ROI is saved next to the input `.zarr`
+   and loaded back into the viewer.
 
 ## Contributing
 
-Contributions are very welcome. Tests can be run with [tox], please ensure
+Contributions are very welcome. Please ensure
 the coverage at least stays the same before you submit a pull request.
 
 ## License
