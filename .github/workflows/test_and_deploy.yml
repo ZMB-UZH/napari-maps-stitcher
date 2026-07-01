@@ -32,7 +32,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup python
         uses: astral-sh/setup-uv@v7
@@ -40,7 +40,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           activate-environment: "true"
       - name: Install Windows OpenGL
-        uses: pyvista/setup-headless-display-action@v4.2
+        uses: pyvista/setup-headless-display-action@v4.3
         with:
           qt: true
           wm: herbstluftwm
@@ -57,14 +57,14 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
 
       - name: Coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
 
   build-and-inspect-package:
     name: Build & inspect package.
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # setuptools_scm derives the version from git tags/history, so the
           # full history (not a shallow clone) must be fetched.
@@ -88,14 +88,14 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # setuptools_scm needs full history/tags to derive the version
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -113,7 +113,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: './dist/*'
