@@ -14,6 +14,15 @@ from sofima import flow_utils, mesh, stitch_elastic, stitch_rigid, warp
 
 from .omezarr_utils import export_single_ROI
 
+# The OpenBLAS bundled with numpy/scipy is compiled with MAX_THREADS=24. When
+# more threads than that call into it, it falls back to a racy code path that
+# segfaults (0xC0000005 on Windows). Rendering calls scipy from every worker
+# thread, so the pool has to stay below that limit -- with headroom, since
+# napari's own threads register with OpenBLAS too. OPENBLAS_NUM_THREADS does
+# not help here: it caps OpenBLAS's internal parallelism, not the number of
+# threads calling in.
+MAX_RENDER_THREADS = 16
+
 
 def get_tile_map(ome_zarr_container, rois: list[Roi]):
     tile_map = {}
@@ -176,7 +185,7 @@ def stitch_sofima(
         meshes,
         stride=(stride, stride),
         margin=4,
-        parallelism=multiprocessing.cpu_count(),
+        parallelism=min(multiprocessing.cpu_count(), MAX_RENDER_THREADS),
     )
     print("Stitching complete.")
     return stitched, fine_x, fine_y, meshes, (cx_org, cy_org), (cx, cy)

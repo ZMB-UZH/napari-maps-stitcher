@@ -387,7 +387,15 @@ class StitchingWidget(QWidget):
 
             # Add ROI shapes layer if it doesn't exist
             if "ROI_layer" not in [layer.name for layer in self.viewer.layers]:
-                shapes_layer = self.viewer.add_shapes(name="ROI_layer")
+                # Inherit the image layer's units. Without this the shapes
+                # layer defaults to "pixel" while the OME-Zarr image is in
+                # micrometer, and napari drops units for rendering.
+                image_layer = self.viewer.layers[num_layers_before]
+                shapes_layer = self.viewer.add_shapes(
+                    name="ROI_layer",
+                    units=image_layer.units[-2:],
+                    axis_labels=image_layer.axis_labels[-2:],
+                )
                 shapes_layer.mode = "add_rectangle"
                 print("Added shapes layer: ROI_layer")
 
