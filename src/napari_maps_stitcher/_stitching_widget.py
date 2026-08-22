@@ -55,6 +55,7 @@ class StitchingWorker(QObject):
         blend: bool,
         stride: int | None,
         output_format: str,
+        intensity_correction: str = "offset",
     ):
         """Initialize the stitching worker.
 
@@ -67,6 +68,8 @@ class StitchingWorker(QObject):
             blend: Whether to use blending for fusion (algorithm-specific).
             stride: Stride parameter for SOFIMA algorithm.
             output_format: Output format ('zarr' or 'tiff').
+            intensity_correction: Per-tile intensity correction applied before
+                fusion ('none', 'offset' or 'affine'; multiview-stitcher only).
         """
         super().__init__()
         self.zarr_path = zarr_path
@@ -77,6 +80,7 @@ class StitchingWorker(QObject):
         self.blend = blend
         self.stride = stride
         self.output_format = output_format
+        self.intensity_correction = intensity_correction
 
     def run(self):
         """Execute the stitching process."""
@@ -113,6 +117,7 @@ class StitchingWorker(QObject):
                     self.blend,
                     self.stride,
                     self.output_format,
+                    self.intensity_correction,
                 )
                 completed_paths.append(final_path)
                 # Emit progress and individual ROI completion
@@ -283,6 +288,32 @@ class StitchingWidget(QWidget):
         blend_layout.addWidget(self.blend_label)
         blend_layout.addWidget(self.blend_checkbox)
         advanced_layout.addLayout(blend_layout)
+
+        # Intensity correction option (multiview-stitcher only)
+        intensity_layout = QHBoxLayout()
+        self.intensity_label = QLabel("Correct tile intensities:")
+        self.intensity_label.setToolTip(
+            "Even out brightness differences between tiles before fusion.\n"
+            "'None': no correction.\n"
+            "'Brightness': match tile brightness only (more robust).\n"
+            "'Brightness + contrast': match both."
+        )
+        self.intensity_combo = QComboBox()
+        self.intensity_combo.addItem("None", "none")
+        self.intensity_combo.addItem("Brightness", "offset")
+        self.intensity_combo.addItem("Brightness + contrast", "affine")
+        self.intensity_combo.setCurrentIndex(
+            self.intensity_combo.findData("offset")
+        )
+        self.intensity_combo.setToolTip(
+            "Even out brightness differences between tiles before fusion.\n"
+            "'None': no correction.\n"
+            "'Brightness': match tile brightness only (more robust).\n"
+            "'Brightness + contrast': match both."
+        )
+        intensity_layout.addWidget(self.intensity_label)
+        intensity_layout.addWidget(self.intensity_combo)
+        advanced_layout.addLayout(intensity_layout)
 
         # SOFIMA stride option
         stride_layout = QHBoxLayout()
@@ -480,6 +511,13 @@ class StitchingWidget(QWidget):
             else False
         )
 
+        # Get intensity correction (multiview only)
+        intensity_correction = (
+            self.intensity_combo.currentData()
+            if algorithm == "multiview-stitcher"
+            else "none"
+        )
+
         # Get stride (SOFIMA only)
         stride = self.stride_input.value() if algorithm == "sofima" else None
 
@@ -499,6 +537,7 @@ class StitchingWidget(QWidget):
             blend,
             stride,
             output_format,
+            intensity_correction,
         )
         self.stitching_thread = QThread()
         self.stitching_worker.moveToThread(self.stitching_thread)
@@ -534,6 +573,7 @@ class StitchingWidget(QWidget):
         self.advanced_toggle.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.blend_checkbox.setEnabled(enabled)
+        self.intensity_combo.setEnabled(enabled)
         self.stride_input.setEnabled(enabled)
         self.stitch_button.setEnabled(enabled)
 
@@ -551,6 +591,8 @@ class StitchingWidget(QWidget):
         self.resolution_combo.setVisible(not is_sofima)
         self.blend_label.setVisible(not is_sofima)
         self.blend_checkbox.setVisible(not is_sofima)
+        self.intensity_label.setVisible(not is_sofima)
+        self.intensity_combo.setVisible(not is_sofima)
 
         self.stride_label.setVisible(is_sofima)
         self.stride_input.setVisible(is_sofima)
@@ -558,6 +600,7 @@ class StitchingWidget(QWidget):
         # Enablement
         self.resolution_combo.setEnabled(not is_sofima)
         self.blend_checkbox.setEnabled(not is_sofima)
+        self.intensity_combo.setEnabled(not is_sofima)
         self.stride_input.setEnabled(is_sofima)
 
         # Tooltips
@@ -577,6 +620,9 @@ class StitchingWidget(QWidget):
                 "SOFIMA computes alignment internally; resolution selection is not used."
             )
             self.blend_checkbox.setToolTip("Blend is not used by SOFIMA.")
+            self.intensity_combo.setToolTip(
+                "Intensity matching is not available for SOFIMA."
+            )
             self.stride_input.setToolTip(
                 "Pixel stride for SOFIMA flow estimation; lower is slower but more accurate."
             )

@@ -53,3 +53,77 @@ def test_stitching_widget_algorithm_toggles_options(qtbot):
     # SOFIMA shows the stride input and hides the resolution selector.
     assert widget.stride_input.isVisibleTo(widget.advanced_widget)
     assert not widget.resolution_combo.isVisibleTo(widget.advanced_widget)
+
+
+def test_intensity_dropdown_defaults_to_offset(qtbot):
+    """Brightness matching is preselected; all three modes are offered."""
+    widget = StitchingWidget(MagicMock())
+    qtbot.addWidget(widget)
+
+    modes = [
+        widget.intensity_combo.itemData(i)
+        for i in range(widget.intensity_combo.count())
+    ]
+    assert modes == ["none", "offset", "affine"]
+    assert widget.intensity_combo.currentData() == "offset"
+
+
+def test_intensity_dropdown_hidden_for_sofima(qtbot):
+    """Intensity matching is a multiview-stitcher option only."""
+    widget = StitchingWidget(MagicMock())
+    qtbot.addWidget(widget)
+
+    sofima_index = next(
+        i
+        for i in range(widget.algorithm_combo.count())
+        if widget.algorithm_combo.itemData(i) == "sofima"
+    )
+    widget.algorithm_combo.setCurrentIndex(sofima_index)
+    assert not widget.intensity_combo.isVisibleTo(widget.advanced_widget)
+
+
+def test_worker_forwards_intensity_choice(qtbot, monkeypatch):
+    """The chosen mode reaches ``stitch_single_roi`` rather than being lost."""
+    from napari_maps_stitcher import utils
+    from napari_maps_stitcher._stitching_widget import StitchingWorker
+    from napari_maps_stitcher.utils import roi_stitching  # noqa: F401
+
+    widget = StitchingWidget(MagicMock())
+    qtbot.addWidget(widget)
+    affine_index = next(
+        i
+        for i in range(widget.intensity_combo.count())
+        if widget.intensity_combo.itemData(i) == "affine"
+    )
+    widget.intensity_combo.setCurrentIndex(affine_index)
+
+    captured = {}
+
+    class FakeRoiStitching:
+        @staticmethod
+        def prepare_roi_stitching(*args):
+            return ["shape"], ["out.zarr"]
+
+        @staticmethod
+        def stitch_single_roi(*args):
+            captured["args"] = args
+            return "out.zarr"
+
+    # The worker resolves ``roi_stitching`` off the ``utils`` package at call
+    # time, so patching the attribute there is what intercepts it.
+    monkeypatch.setattr(utils, "roi_stitching", FakeRoiStitching)
+
+    worker = StitchingWorker(
+        "in.zarr",
+        MagicMock(),
+        lambda layer: ["shape"],
+        "multiview-stitcher",
+        None,
+        False,
+        None,
+        "zarr",
+        widget.intensity_combo.currentData(),
+    )
+    worker.run()
+
+    assert captured["args"][-1] == "affine"

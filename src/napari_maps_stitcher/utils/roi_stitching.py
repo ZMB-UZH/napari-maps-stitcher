@@ -97,6 +97,7 @@ def stitch_single_roi(
     blend: bool = False,
     stride: int | None = None,
     output_format: str = "zarr",
+    intensity_correction: str = "offset",
 ) -> Path:
     """Stitch a single ROI from the input zarr.
 
@@ -111,6 +112,8 @@ def stitch_single_roi(
         blend: If True, use blending for fusion (algorithm-specific).
         stride: Stride parameter for SOFIMA algorithm.
         output_format: Output format ('zarr' or 'tiff').
+        intensity_correction: Per-tile intensity correction to apply before
+            fusion, one of 'none', 'offset' or 'affine' (algorithm-specific).
 
     Returns:
         Path to the final output file.
@@ -144,6 +147,7 @@ def stitch_single_roi(
         blend=blend,
         stride=stride,
         z_project=True,  # Project z-axis for registration (multiview-stitcher)
+        intensity_correction=intensity_correction,
     )
 
     # Convert to TIFF if needed
@@ -242,6 +246,7 @@ def stitch_all_rois(
     resolution_path: str | None = None,
     blend: bool = False,
     stride: int | None = None,
+    intensity_correction: str = "offset",
 ) -> list[Path]:
     """Stitch all ROIs from a shapes layer.
 
@@ -255,6 +260,8 @@ def stitch_all_rois(
             If None, uses the lowest resolution.
         blend: If True, use blending for fusion (algorithm-specific).
         stride: Stride parameter for SOFIMA algorithm.
+        intensity_correction: Per-tile intensity correction to apply before
+            fusion, one of 'none', 'offset' or 'affine' (algorithm-specific).
 
     Returns:
         List of paths to the generated stitched zarr files.
@@ -279,6 +286,7 @@ def stitch_all_rois(
             resolution_path,
             blend,
             stride,
+            intensity_correction=intensity_correction,
         )
 
     print(f"\nCompleted stitching {len(shapes)} ROI(s)")

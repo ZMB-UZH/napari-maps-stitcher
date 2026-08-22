@@ -9,6 +9,11 @@ from ngio import Roi, open_ome_zarr_container
 from ngio.tables import RoiTable
 
 from ..multiview_stitcher_utils.fusion import overlay_fusion
+from ..multiview_stitcher_utils.intensity_correction import (
+    DEFAULT_DRIFT_LENGTH,
+    apply_intensity_params,
+    estimate_intensity_correction,
+)
 from .omezarr_utils import export_single_ROI, get_msims, zarrs_codec
 
 
@@ -19,6 +24,9 @@ def stitch_rois_multiview_stitcher(
     resolution_path: str = None,
     blend: bool = False,
     z_project: bool = True,
+    intensity_correction: str = "offset",
+    intensity_estimator: str = "quantile",
+    intensity_drift_length: float = DEFAULT_DRIFT_LENGTH,
 ) -> None:
     """Stitch ROIs using multiview-stitcher registration and fusion.
 
@@ -31,7 +39,23 @@ def stitch_rois_multiview_stitcher(
         blend: If True, use weighted average blending for fusion.
             If False, use overlay fusion.
         z_project: If True, project z-axis for registration.
+        intensity_correction: Per-tile intensity correction to apply before
+            fusion. ``"offset"`` (the default) fits a brightness offset per
+            tile, ``"affine"`` fits brightness and contrast, ``"none"``
+            disables it.
+        intensity_estimator: How overlapping tiles are compared:
+            ``"quantile"`` matches their intensity distributions and does not
+            rely on the registration being pixel-accurate, ``"pixel"`` compares
+            co-located pixels and is only valid when it is.
+        intensity_drift_length: Distance in tiles over which the correction may
+            drift before being pulled back toward identity. Lower values guard
+            harder against one side of a large mosaic going dark.
     """
+    if intensity_correction not in ("none", "offset", "affine"):
+        raise ValueError(
+            f"Unknown intensity_correction {intensity_correction!r}; "
+            "expected 'none', 'offset' or 'affine'"
+        )
     if len(rois) == 1:
         export_single_ROI(input_zarr_url, output_zarr_url, rois[0])
         return
@@ -58,6 +82,41 @@ def stitch_rois_multiview_stitcher(
             pre_registration_pruning_method="keep_axis_aligned",  # works well for tiles on a grid
             # groupwise_resolution_method="shortest_paths",
         )
+
+    # estimate the per-tile intensity correction on the registration-
+    # resolution views. The model is affine in intensity, so it commutes with
+    # both the downsampling and the z-projection those views may carry: fitting
+    # here and applying at full resolution is exact, and costs no extra I/O.
+    corrections = None
+    if intensity_correction != "none":
+        print("    Estimating intensity correction...")
+        reg_sim = msi_utils.get_sim_from_msim(msims_reg[0])
+        channels = (
+            list(reg_sim.coords["c"].values)
+            if "c" in reg_sim.dims
+            else [None]
+        )
+        with ProgressBar():
+            corrections = [
+                estimate_intensity_correction(
+                    msims_reg,
+                    transform_key="affine_registered",
+                    estimator=intensity_estimator,
+                    model=intensity_correction,
+                    drift_length=intensity_drift_length,
+                    channel=channel,
+                )
+                for channel in channels
+            ]
+        for channel, correction in zip(channels, corrections, strict=True):
+            label = "" if channel is None else f" [{channel}]"
+            print(
+                f"      {correction.n_pairs} pair(s){label}: "
+                f"gain {correction.gains.min():.3f}-"
+                f"{correction.gains.max():.3f}, offset "
+                f"{correction.offsets.min():.1f}-"
+                f"{correction.offsets.max():.1f}"
+            )
 
     # apply the stitching transformations to the full-resolution FOVs
     if resolution_path == "0" and not z_project:
@@ -88,9 +147,17 @@ def stitch_rois_multiview_stitcher(
                 msims_fusion[i], affine, "affine_registered"
             )
 
+    sims_fusion = [
+        msi_utils.get_sim_from_msim(msim) for msim in msims_fusion
+    ]
+    if corrections is not None:
+        # Applied per view rather than to the fused mosaic, so the zero padding
+        # that fusion introduces around each tile stays zero.
+        sims_fusion = apply_intensity_params(sims_fusion, corrections)
+
     # get fused image (lazy calculation)
     fused = fusion.fuse(
-        [msi_utils.get_sim_from_msim(msim) for msim in msims_fusion],
+        sims_fusion,
         fusion_func=weighted_average_fusion if blend else overlay_fusion,
         transform_key="affine_registered",
         output_chunksize=1024,
