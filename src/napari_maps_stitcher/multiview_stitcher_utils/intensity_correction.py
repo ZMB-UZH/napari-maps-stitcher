@@ -548,7 +548,7 @@ def _iter_overlap_crops(sims, edges, transform_key, batch_size):
         batch = edges[start : start + batch_size]
         lazy = []
         for index_i, index_j in batch:
-            overlap_bboxes = registration.get_overlap_bboxes(
+            overlap = registration._get_overlap_bboxes(
                 sims[index_i],
                 sims[index_j],
                 input_transform_key=transform_key,
@@ -557,7 +557,7 @@ def _iter_overlap_crops(sims, edges, transform_key, batch_size):
                 sims[index_i],
                 sims[index_j],
                 transform_key,
-                overlap_bboxes,
+                (overlap["lowers"], overlap["uppers"]),
             )
             lazy += [crop_i.data, crop_j.data]
         # Passes numpy arrays through untouched, so this also covers views that

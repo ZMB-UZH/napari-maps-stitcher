@@ -37,7 +37,7 @@ dependencies = [
     "scikit-image",
     "maps-omezarr-converter @ git+https://github.com/ZMB-UZH/maps-omezarr-converter.git@v0.2.2",
     "sofima @ git+https://github.com/google-research/sofima.git",
-    "multiview-stitcher",
+    "multiview-stitcher>=0.1.53",
     "shapely",
 ]
 

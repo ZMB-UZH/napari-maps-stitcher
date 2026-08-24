@@ -315,3 +315,38 @@ def test_apply_intensity_params_checks_view_count():
     correction = ic.IntensityCorrection(params=np.ones((3, 2)))
     with pytest.raises(ValueError, match="fitted on 3 views"):
         ic.apply_intensity_params([object(), object()], correction)
+
+
+def test_upstream_overlap_bbox_contract():
+    """Pin the private multiview-stitcher helper the overlap crops rely on.
+
+    ``registration._get_overlap_bboxes`` is not public API: it was renamed from
+    ``get_overlap_bboxes`` and its return changed from ``(lowers, uppers)`` to
+    a dict, which broke ``_iter_overlap_crops`` on the 0.1.44 -> 0.1.59 jump.
+    Assert the shape here so the next such change fails in seconds rather than
+    partway through a stitching run.
+    """
+    from multiview_stitcher import registration
+    from multiview_stitcher import spatial_image_utils as si_utils
+
+    def sim(origin):
+        return si_utils.get_sim_from_array(
+            np.zeros((8, 8), dtype="uint16"),
+            dims=("y", "x"),
+            scale={"y": 1.0, "x": 1.0},
+            translation={"y": float(origin[0]), "x": float(origin[1])},
+            transform_key="stage",
+        )
+
+    overlap = registration._get_overlap_bboxes(
+        sim((0, 0)), sim((4, 4)), input_transform_key="stage"
+    )
+
+    assert isinstance(overlap, dict)
+    assert {"lowers", "uppers"} <= set(overlap)
+    lowers, uppers = overlap["lowers"], overlap["uppers"]
+    assert len(lowers) == len(uppers) == 2
+    # Two 8x8 views (pixel centres 0..7) offset by 4 share the centres 4..7:
+    # the bounds are inclusive of the last sample, not its outer edge.
+    assert np.allclose(lowers[0], [4.0, 4.0])
+    assert np.allclose(uppers[0], [7.0, 7.0])
